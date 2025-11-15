@@ -1,4 +1,4 @@
-package kinematic_trees
+package kinematic_graphs
 
 import (
 	kinematic_trees_errors "github.com/WrenchRobotics/rigid-body-dynamics-go/errors/kinematic_trees"
@@ -27,7 +27,16 @@ func (g *KinematicGraph) AddNode(node *KinematicTreeNode) {
 	g.NodeMap[node.ID()] = node
 }
 
-func (g *KinematicGraph) From(modelIn *urdfmodel.Model) error {
+func (g *KinematicGraph) Edge(uid, vid int64) graph.Edge {
+	if g.HasEdge(uid, vid) {
+		var edge KinematicGraphEdge
+		edge.Create(g.NodeMap[uid], g.NodeMap[vid])
+		return &edge
+	}
+	return nil
+}
+
+func (g *KinematicGraph) ExtractFromModel(modelIn *urdfmodel.Model) error {
 	if modelIn == nil {
 		return nil
 	}
@@ -47,6 +56,28 @@ func (g *KinematicGraph) From(modelIn *urdfmodel.Model) error {
 	}
 
 	return nil
+}
+
+func (g *KinematicGraph) From(id int64) graph.Nodes {
+	var out []graph.Node
+	// Extract parent of node, if it exists
+	parentNode, err := g.GetParent(g.NodeMap[id])
+	if err != nil {
+		return iterator.NewOrderedNodes(out)
+	}
+	if parentNode != nil {
+		out = append(out, parentNode)
+	}
+
+	// Extract children of node, if they exist
+	childrenNodes, err := g.GetChildren(g.NodeMap[id])
+	if err != nil {
+		return iterator.NewOrderedNodes(out)
+	}
+	for _, childNode := range childrenNodes {
+		out = append(out, childNode)
+	}
+	return iterator.NewOrderedNodes(out)
 }
 
 func (g *KinematicGraph) GetChildren(n *KinematicTreeNode) ([]*KinematicTreeNode, error) {
@@ -125,6 +156,31 @@ func (g *KinematicGraph) GetParent(n *KinematicTreeNode) (*KinematicTreeNode, er
 	}
 
 	return parentAsKinematicNode, nil
+}
+
+func (g *KinematicGraph) HasEdge(xid, yid int64) bool {
+	// Check if both nodes exist
+	xNode, err := g.GetNode(xid)
+	if err != nil {
+		return false
+	}
+	yNode, err := g.GetNode(yid)
+	if err != nil {
+		return false
+	}
+
+	// Check if x is a child of y
+	if parentNode, _ := g.GetParent(xNode); parentNode == yNode {
+		return true
+	}
+
+	// Check if y is a child of x
+	if parentNode, _ := g.GetParent(yNode); parentNode == xNode {
+		return true
+	}
+
+	// Otherwise, no relationship exists
+	return false
 }
 
 func (g *KinematicGraph) Nodes() graph.Nodes {

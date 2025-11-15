@@ -1,4 +1,4 @@
-package kinematic_trees
+package kinematic_graphs
 
 import (
 	kinematic_trees_errors "github.com/WrenchRobotics/rigid-body-dynamics-go/errors/kinematic_trees"
