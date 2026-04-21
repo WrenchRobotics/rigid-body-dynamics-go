@@ -3,19 +3,18 @@ package kinematic_trees_test
 import (
 	"testing"
 
-	"github.com/WrenchRobotics/rigid-body-dynamics-go/kinematic_graphs"
+	"github.com/WrenchRobotics/rigid-body-dynamics-go/graphs/kinematic_graphs"
 	"github.com/WrenchRobotics/urdf-go/urdf_model/link"
 )
 
-func TestKinematicTreeNode_GetName1(t *testing.T) {
+func TestKinematicGraphNode_GetName1(t *testing.T) {
 	// Setup
 	link1 := &link.Link{
 		Name: "link1",
 	}
 
-	// Create a new KinematicTreeNode
-	var node kinematic_graphs.KinematicTreeNode
-	node.Create(link1, 1)
+	// Create a new KinematicGraphNode
+	node := kinematic_graphs.NewKinematicGraphNode(link1, 1)
 
 	// Get the name of the node
 	name, err := node.GetName()

@@ -1,0 +1,91 @@
+<?xml version="1.0" ?>
+<robot name="Crank-Slider Linkage (Sketch)">
+    <link name="base">
+        <inertial>
+            <origin
+                xyz="0 0 0"
+                rpy="0 0 0" />
+            <mass
+                value="5.0" />
+            <inertia
+                ixx="1"
+                ixy="0.0"
+                ixz="0.0"
+                iyy="1"
+                iyz="0.0"
+                izz="1" />
+        </inertial>
+    </link>
+    <link name="B1">
+         <inertial>
+            <origin
+                xyz="0 0 0"
+                rpy="0 0 0" />
+            <mass
+                value="2.5" />
+            <inertia
+                ixx="2.0"
+                ixy="0.0"
+                ixz="0.0"
+                iyy="2"
+                iyz="0.0"
+                izz="2" />
+        </inertial>
+    </link>
+    <joint name="J1" type="fixed">
+        <origin rpy="0 0 0" xyz="0 -0.1 0.25"/>
+        <parent link="base"/>
+        <child link="B1"/>
+    </joint>
+    
+    <!-- Create B3 which be almost symmetrically linked to the base -->
+    <link name="B3">
+        <inertial>
+            <origin
+                xyz="0 0 0"
+                rpy="0 0 0" />
+            <mass
+                value="1.5" />
+            <inertia
+                ixx="1.0"
+                ixy="0.0"
+                ixz="0.0"
+                iyy="1"
+                iyz="0.0"
+                izz="1" />
+        </inertial>
+    </link>
+    <joint name="J4" type="fixed">
+        <origin rpy="0 0 0" xyz="0 0.1 0.25"/>
+        <parent link="base"/>
+        <child link="B3"/>
+    </joint>
+
+    <!-- Create B2 which will complete the kinematic chain -->
+    <link name="B2">
+        <inertial>
+            <origin
+                xyz="0 0 0"
+                rpy="0 0 0" />
+            <mass
+                value="1.0" />
+            <inertia
+                ixx="0.8"
+                ixy="0.0"
+                ixz="0.0"
+                iyy="0.8"
+                iyz="0.0"
+                izz="0.8" />
+        </inertial>
+    </link>
+    <joint name="J3" type="prismatic">
+        <origin rpy="0 0 0" xyz="0 -0.2 0"/>
+        <parent link="B3"/>
+        <child link="B2"/>
+    </joint>
+    <joint name="J2" type="prismatic">
+        <origin rpy="0 0 0" xyz="0 +0.2 0"/>
+        <parent link="B1"/>
+        <child link="B2"/>
+    </joint>
+</robot>
