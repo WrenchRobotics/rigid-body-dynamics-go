@@ -50,22 +50,29 @@ func (g *KinematicGraph) AddNode(node graph.Node) {
 func (g *KinematicGraph) Edge(uid, vid int64) graph.Edge {
 	// Attempt to collect the edge in question
 	kge, err := g.GetEdgeBetween(uid, vid)
-
-	// Check the error value to determine what to do
-	switch err {
-	case nil:
+	if err == nil {
 		return kge
-	case &kinematic_graph_errors.EdgeNotFoundError{FromID: uid, ToID: vid}:
-		return nil
-	default:
-		panic(
-			fmt.Errorf(
-				"there was an issue collecting the edge between \"%v\" and \"%v\"",
-				uid,
-				vid,
-			),
-		)
 	}
+
+	// The kinematic graph stores directed edges, but traversal in this type
+	// uses undirected neighborhood semantics via From().
+	kge, reverseErr := g.GetEdgeBetween(vid, uid)
+	if reverseErr == nil {
+		return kge
+	}
+
+	if _, ok := err.(*kinematic_graph_errors.EdgeNotFoundError); ok {
+		return nil
+	}
+
+	panic(
+		fmt.Errorf(
+			"there was an issue collecting the edge between \"%v\" and \"%v\": %v",
+			uid,
+			vid,
+			err,
+		),
+	)
 }
 
 // EdgeBetween returns the edge between nodes x and y
@@ -75,22 +82,35 @@ func (g *KinematicGraph) EdgeBetween(xid, yid int64) graph.Edge {
 	edge, err := g.GetEdgeBetween(xid, yid)
 
 	// Check the error value to decide what to do next
-	switch err {
-	case nil:
+	if err == nil {
 		return edge
-	case &kinematic_graph_errors.EdgeNotFoundError{FromID: xid, ToID: yid}:
-		return nil
-	default:
-		panic(
-			fmt.Errorf("there was an issue checking for an edge between the two graph nodes: %v", err),
-		)
 	}
 
+	edge, reverseErr := g.GetEdgeBetween(yid, xid)
+	if reverseErr == nil {
+		return edge
+	}
+
+	if _, ok := err.(*kinematic_graph_errors.EdgeNotFoundError); ok {
+		return nil
+	}
+
+	panic(
+		fmt.Errorf("there was an issue checking for an edge between the two graph nodes: %v", err),
+	)
+}
+
+func (g *KinematicGraph) Edges() graph.Edges {
+	edges := make([]graph.Edge, len(g.edges))
+	for i, e := range g.edges {
+		edges[i] = e
+	}
+	return iterator.NewOrderedEdges(edges)
 }
 
 func (g *KinematicGraph) ExtractFromModel(modelIn *urdfmodel.Model) error {
 	if modelIn == nil {
-		return nil
+		return fmt.Errorf("no model provided to function; i.e., received nil.")
 	}
 
 	// Iterate through links in model and:
@@ -266,38 +286,111 @@ func (g *KinematicGraph) GetParent(n *KinematicGraphNode) (*KinematicGraphNode, 
 		return nil, nil
 	}
 
-	// Return parent as kinematic tree node
-	parentAsKinematicNode := NewKinematicGraphNode(nAsLink.ParentLink, len(g.nodeMap)+1)
-	if err != nil {
-		return nil, err
+	// Return the existing parent node already present in this graph.
+	return g.GetNodeForLink(nAsLink.ParentLink)
+}
+
+func (g *KinematicGraph) connectedComponentsByStoredEdges() int {
+	if len(g.nodeMap) == 0 {
+		return 0
 	}
 
-	return &parentAsKinematicNode, nil
+	adjacency := make(map[int64][]int64, len(g.nodeMap))
+	for nodeID := range g.nodeMap {
+		adjacency[nodeID] = make([]int64, 0)
+	}
+
+	for _, edge := range g.edges {
+		fromID := edge.from.ID()
+		toID := edge.to.ID()
+		adjacency[fromID] = append(adjacency[fromID], toID)
+		adjacency[toID] = append(adjacency[toID], fromID)
+	}
+
+	visited := make(map[int64]bool, len(g.nodeMap))
+	components := 0
+
+	for startNodeID := range g.nodeMap {
+		if visited[startNodeID] {
+			continue
+		}
+
+		components++
+		queue := []int64{startNodeID}
+		visited[startNodeID] = true
+
+		for len(queue) > 0 {
+			current := queue[0]
+			queue = queue[1:]
+
+			for _, neighborID := range adjacency[current] {
+				if visited[neighborID] {
+					continue
+				}
+
+				visited[neighborID] = true
+				queue = append(queue, neighborID)
+			}
+		}
+	}
+
+	return components
 }
 
 func (g *KinematicGraph) HasEdgeBetween(xid, yid int64) bool {
-	// Check if both nodes exist
-	xNode, err := g.GetNode(xid)
-	if err != nil {
-		return false
-	}
-	yNode, err := g.GetNode(yid)
-	if err != nil {
-		return false
-	}
+	// Try to collect the edge
+	tempEdge, err := g.GetEdgeBetween(xid, yid)
 
-	// Check if x is a child of y
-	if parentNode, _ := g.GetParent(xNode); parentNode == yNode {
+	// If edge was found, then return nil
+	if tempEdge != nil {
 		return true
 	}
 
-	// Check if y is a child of x
-	if parentNode, _ := g.GetParent(yNode); parentNode == xNode {
-		return true
+	// If tempEdge was nil AND the error was "not found" error,
+	// then return false
+	edgeNotFoundError := kinematic_graph_errors.EdgeNotFoundError{FromID: xid, ToID: yid}
+	if err.Error() == edgeNotFoundError.Error() {
+		return false
 	}
 
-	// Otherwise, no relationship exists
-	return false
+	// Otherwise, panic
+	panic(fmt.Errorf(
+		"unexpected error received while getting edge between %v and %v: %v",
+		xid, yid,
+		err,
+	))
+}
+
+// IsTree returns true if the associated kinematic graph is also
+// a tree; false if not.
+func (g *KinematicGraph) IsTree() bool {
+	if len(g.nodeMap) == 0 {
+		return false
+	}
+
+	// For edge-defined tree semantics, the graph must be connected using
+	// the stored edge set and must satisfy |E| = |V|-1.
+	if g.connectedComponentsByStoredEdges() != 1 {
+		return false
+	}
+
+	numNodes := len(g.nodeMap)
+	numEdges := len(g.edges)
+	return numNodes-1 == numEdges
+
+}
+
+// IsLinkTopologyTree returns whether the graph appears as a tree when
+// traversed through link parent/child topology exposed by From().
+func (g *KinematicGraph) IsLinkTopologyTree() bool {
+	components := topo.ConnectedComponents(g)
+	if len(components) != 1 {
+		return false
+	}
+
+	numNodes := g.Nodes().Len()
+	numEdges := len(g.edges)
+	return numNodes-1 == numEdges
 }
 
 // Adds an edge in graph g between the nodes with ids uid and vid
@@ -392,23 +485,6 @@ func (g *KinematicGraph) Nodes() graph.Nodes {
 	return iterator.NewOrderedNodes(out)
 }
 
-// IsTree returns true if the associated kinematic graph is also
-// a tree; false if not.
-func (g *KinematicGraph) IsTree() bool {
-	// If the graph is a tree, then
-	// then there is only one connected component
-	components := topo.ConnectedComponents(g)
-	if len(components) != 1 {
-		return false
-	}
-
-	// If the graph is a tree, then there should be no loops in graph with single connected component
-	numNodes := g.Nodes().Len()
-	numEdges := len(g.edges)
-	return numNodes-1 == numEdges
-
-}
-
 // RemoveNode removes the node with the given ID
 // from the graph, as well as any edges attached
 // to it. If the node is not in the graph it is
@@ -466,4 +542,117 @@ func (g *KinematicGraph) SetEdge(edge graph.Edge) {
 		g.edges = append(g.edges, edgeAsKGE)
 	}
 
+}
+
+// ToSpanningTree uses a greedy algorithm to construct a spanning tree
+// for the current kinematic graph.
+func (g *KinematicGraph) ToSpanningTree() (KinematicTree, error) {
+	// A single spanning tree can only be formed from a connected graph.
+	components := topo.ConnectedComponents(g)
+	if len(components) != 1 {
+		return KinematicTree{}, fmt.Errorf("graph has more than one connected component; cannot construct spanning tree")
+	}
+
+	nodes := g.Nodes()
+	if !nodes.Next() {
+		return KinematicTree{}, fmt.Errorf("graph has no nodes")
+	}
+
+	rootNode, ok := nodes.Node().(*KinematicGraphNode)
+	if !ok {
+		return KinematicTree{}, fmt.Errorf("first graph node is not a KinematicGraphNode")
+	}
+
+	return g.ToSpanningTreeWithDesiredRootNode(rootNode)
+}
+
+// ToSpanningTreeWithDesiredRootNode uses a greedy algorithm to construct a
+// spanning tree for the current kinematic graph using rootNode as the root.
+func (g *KinematicGraph) ToSpanningTreeWithDesiredRootNode(rootNode *KinematicGraphNode) (KinematicTree, error) {
+	if rootNode == nil {
+		return KinematicTree{}, fmt.Errorf("desired root node cannot be nil")
+	}
+
+	if _, err := g.GetNode(rootNode.ID()); err != nil {
+		return KinematicTree{}, fmt.Errorf("desired root node with ID %d does not exist in graph", rootNode.ID())
+	}
+
+	// A single spanning tree can only be formed from a connected graph.
+	components := topo.ConnectedComponents(g)
+	if len(components) != 1 {
+		return KinematicTree{}, fmt.Errorf("graph has more than one connected component; cannot construct spanning tree")
+	}
+
+	root := rootNode
+
+	spanningGraph := NewKinematicGraph()
+	for _, node := range g.nodeMap {
+		spanningGraph.AddNode(node)
+	}
+
+	if g.IsTree() {
+		for _, edge := range g.edges {
+			spanningGraph.SetEdge(edge)
+		}
+
+		rootNode, err := spanningGraph.GetNode(root.ID())
+		if err != nil {
+			return KinematicTree{}, fmt.Errorf("there was an issue finding root node in spanning tree: %v", err)
+		}
+
+		return KinematicTree{
+			underlyingGraph: spanningGraph,
+			rootNode:        rootNode,
+		}, nil
+	}
+
+	visited := make(map[int64]bool, len(g.nodeMap))
+	parentByNodeID := make(map[int64]int64, len(g.nodeMap)-1)
+	queue := []int64{root.ID()}
+	visited[root.ID()] = true
+
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+
+		neighbors := g.From(currentID)
+		for neighbors.Next() {
+			neighbor := neighbors.Node()
+			neighborID := neighbor.ID()
+			if visited[neighborID] {
+				continue
+			}
+
+			visited[neighborID] = true
+			parentByNodeID[neighborID] = currentID
+			queue = append(queue, neighborID)
+		}
+	}
+
+	for childID, parentID := range parentByNodeID {
+		edge, err := g.GetEdgeBetween(parentID, childID)
+		if err != nil {
+			edge, err = g.GetEdgeBetween(childID, parentID)
+			if err != nil {
+				return KinematicTree{}, fmt.Errorf(
+					"there was an issue finding BFS tree edge between nodes %d and %d: %v",
+					parentID,
+					childID,
+					err,
+				)
+			}
+		}
+
+		spanningGraph.SetEdge(edge)
+	}
+
+	rootNode, err := spanningGraph.GetNode(root.ID())
+	if err != nil {
+		return KinematicTree{}, fmt.Errorf("there was an issue finding root node in spanning tree: %v", err)
+	}
+
+	return KinematicTree{
+		underlyingGraph: spanningGraph,
+		rootNode:        rootNode,
+	}, nil
 }
