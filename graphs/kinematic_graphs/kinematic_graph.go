@@ -2,6 +2,7 @@ package kinematic_graphs
 
 import (
 	"fmt"
+	"log"
 
 	kinematic_graph_errors "github.com/WrenchRobotics/rigid-body-dynamics-go/errors/kinematic_graphs"
 	link_errors "github.com/WrenchRobotics/rigid-body-dynamics-go/errors/link"
@@ -37,9 +38,7 @@ func (g *KinematicGraph) AddNode(node graph.Node) {
 		)
 	}
 
-	fmt.Printf(
-		"adding the node with id %v...\n", node.ID(),
-	)
+	log.Printf("adding the node with id %v...\n", node.ID())
 
 	g.nodeMap[node.ID()] = ktn
 }
@@ -113,6 +112,20 @@ func (g *KinematicGraph) ExtractFromModel(modelIn *urdfmodel.Model) error {
 		return fmt.Errorf("no model provided to function; i.e., received nil.")
 	}
 
+	// Create MultiWriter
+	_, mw, err := utils.CreateIOMultiWriterForLogFile(
+		fmt.Sprintf("%v-model.log", modelIn.Name),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create log file: %v", err)
+	}
+
+	// Configure the logging library's output
+	log.SetOutput(mw)
+
+	log.SetPrefix("[ExtractFromModel] ")
+	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+
 	// Iterate through links in model and:
 	// - add each node to the graph
 	for _, linkName := range modelIn.GetAllLinkNames() {
@@ -125,7 +138,7 @@ func (g *KinematicGraph) ExtractFromModel(modelIn *urdfmodel.Model) error {
 		// Create new kinematic tree node
 		newNode := NewKinematicGraphNode(linkIn, g.Nodes().Len())
 
-		fmt.Printf("adding node with the name \"%v\"\n", linkName)
+		log.Printf("adding node with the name \"%v\"\n", linkName)
 
 		g.AddNode(&newNode)
 	}
