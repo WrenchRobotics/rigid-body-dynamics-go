@@ -17,7 +17,11 @@ jobs:
           cache: true
 
       - name: Run unit tests
-        run: go test ./... -v -race -coverprofile=coverage.out -covermode=atomic
+        run: |
+          PKGS=$(go list ./... | grep -v /examples/)
+          go test $PKGS -v -race \
+            -coverpkg=$(echo $PKGS | tr ' ' ',') \
+            -coverprofile=coverage.out -covermode=atomic
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
