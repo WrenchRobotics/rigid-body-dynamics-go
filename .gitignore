@@ -33,3 +33,6 @@ go.work.sum
 
 # Logs from examples
 *.log
+
+# Example artifacts
+examples/**/**.svg
