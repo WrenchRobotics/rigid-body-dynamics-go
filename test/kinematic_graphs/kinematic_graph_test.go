@@ -1,4 +1,4 @@
-package kinematic_trees_test
+package kinematic_graphs_test
 
 import (
 	"strings"
@@ -222,5 +222,90 @@ func TestKinematicGraph_ToSpanningTreeWithDesiredRootNode_InvalidRootNode(t *tes
 	_, err := kg.ToSpanningTreeWithDesiredRootNode(&invalidRoot)
 	if err == nil {
 		t.Fatalf("expected error when desired root node does not exist in graph, but got nil")
+	}
+}
+
+// TestKinematicGraph_ToSpanningTree_RootHasNoParent verifies that ToSpanningTree
+// always roots the tree at the URDF link without a parent ("base" for the
+// crank-slider). Map iteration order is randomized in Go, so the check is
+// repeated to catch any non-deterministic root selection.
+func TestKinematicGraph_ToSpanningTree_RootHasNoParent(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		kg, err := systems.CreateCrankSliderLinkageKinematicGraph()
+		if err != nil {
+			t.Fatalf("there was an issue attempting to load CrankSliderLinkage system: %v", err)
+		}
+
+		tree, err := kg.ToSpanningTree()
+		if err != nil {
+			t.Fatalf("ToSpanningTree failed on iteration %d: %v", i, err)
+		}
+
+		rootLink, err := tree.RootNode().GetLink()
+		if err != nil {
+			t.Fatalf("failed to get link of root node: %v", err)
+		}
+
+		if rootLink.ParentLink != nil {
+			t.Fatalf("expected root link to have no parent, but %q has parent %q", rootLink.Name, rootLink.ParentLink.Name)
+		}
+
+		if rootLink.Name != "base" {
+			t.Fatalf("expected root link to be \"base\", got %q (iteration %d)", rootLink.Name, i)
+		}
+	}
+}
+
+// TestKinematicGraph_FindRootNode_NoNodes verifies that FindRootNode returns
+// an error for an empty graph.
+func TestKinematicGraph_FindRootNode_NoNodes(t *testing.T) {
+	kg := kinematic_graphs.NewKinematicGraph()
+
+	if _, err := kg.FindRootNode(); err == nil {
+		t.Fatalf("expected error when finding root node of empty graph, got nil")
+	}
+}
+
+// TestKinematicGraph_ComputeNumbering_CrankSlider verifies that every node of
+// the crank-slider is numbered, that the root ("base") receives number 0, and
+// that numbers are exactly 0..N_B-1. This guards against the regression where a
+// random root (e.g. a leaf link) caused only a subset of nodes to be numbered.
+func TestKinematicGraph_ComputeNumbering_CrankSlider(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		kg, err := systems.CreateCrankSliderLinkageKinematicGraph()
+		if err != nil {
+			t.Fatalf("there was an issue attempting to load CrankSliderLinkage system: %v", err)
+		}
+
+		numbering, err := kg.ComputeNumbering()
+		if err != nil {
+			t.Fatalf("ComputeNumbering failed on iteration %d: %v", i, err)
+		}
+
+		nb := kg.Nodes().Len()
+		seen := make(map[uint64]bool, nb)
+		nodes := kg.Nodes()
+		for nodes.Next() {
+			node := nodes.Node().(*kinematic_graphs.KinematicGraphNode)
+			number, ok := numbering.GetNodeNumber(node.ID())
+			if !ok {
+				t.Fatalf("node %d was not assigned a number (iteration %d)", node.ID(), i)
+			}
+			if number >= uint64(nb) {
+				t.Fatalf("node %d has out-of-range number %d for N=%d", node.ID(), number, nb)
+			}
+			if seen[number] {
+				t.Fatalf("number %d was assigned to more than one node", number)
+			}
+			seen[number] = true
+
+			nodeLink, err := node.GetLink()
+			if err != nil {
+				t.Fatalf("failed to get link of node %d: %v", node.ID(), err)
+			}
+			if nodeLink.Name == "base" && number != 0 {
+				t.Fatalf("expected \"base\" to be numbered 0, got %d", number)
+			}
+		}
 	}
 }

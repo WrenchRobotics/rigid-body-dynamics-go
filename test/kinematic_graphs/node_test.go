@@ -1,4 +1,4 @@
-package kinematic_trees_test
+package kinematic_graphs_test
 
 import (
 	"testing"
