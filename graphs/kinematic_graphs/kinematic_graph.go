@@ -3,6 +3,7 @@ package kinematic_graphs
 import (
 	"fmt"
 	"log"
+	"sort"
 
 	kinematic_graph_errors "github.com/WrenchRobotics/rigid-body-dynamics-go/errors/kinematic_graphs"
 	link_errors "github.com/WrenchRobotics/rigid-body-dynamics-go/errors/link"
@@ -126,9 +127,16 @@ func (g *KinematicGraph) ExtractFromModel(modelIn *urdfmodel.Model) error {
 	log.SetPrefix("[ExtractFromModel] ")
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 
+	// The model stores its links and joints in maps, so sort their names
+	// to make the node IDs and edge order deterministic.
+	linkNames := modelIn.GetAllLinkNames()
+	sort.Strings(linkNames)
+	jointNames := modelIn.GetAllJointNames()
+	sort.Strings(jointNames)
+
 	// Iterate through links in model and:
 	// - add each node to the graph
-	for _, linkName := range modelIn.GetAllLinkNames() {
+	for _, linkName := range linkNames {
 		// Get link from model
 		linkIn, err := modelIn.GetLink(linkName)
 		if err != nil {
@@ -144,7 +152,7 @@ func (g *KinematicGraph) ExtractFromModel(modelIn *urdfmodel.Model) error {
 	}
 
 	// - add each edge to the graph now that all nodes exist
-	for _, jointName := range modelIn.GetAllJointNames() {
+	for _, jointName := range jointNames {
 		// Get joint from model
 		jointIn, err := modelIn.GetJoint(jointName)
 		if err != nil {
@@ -238,6 +246,11 @@ func (g *KinematicGraph) GetChildren(n *KinematicGraphNode) ([]*KinematicGraphNo
 		}
 		children[i] = nodeI
 	}
+
+	// The order of ChildLinks is not deterministic, so sort the children by ID
+	sort.Slice(children, func(i, j int) bool {
+		return children[i].ID() < children[j].ID()
+	})
 
 	return children, nil
 }

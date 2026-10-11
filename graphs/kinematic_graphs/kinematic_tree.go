@@ -23,6 +23,84 @@ func (kt KinematicTree) ArcCount() int {
 	return len(kt.underlyingGraph.edges)
 }
 
+/*
+Parents returns a map from the ID of each non-root node in the tree to the ID
+of its parent in the tree (i.e., the parent array λ(i) from the textbook, but
+indexed by node ID). The root node does not appear as a key.
+
+The parent of a node is its neighbor that is closer to the root, regardless of
+the direction of the joint connecting the two.
+*/
+func (kt KinematicTree) Parents() map[int64]int64 {
+	parents, _ := kt.breadthFirstSearch()
+	return parents
+}
+
+/*
+Depths returns a map from the ID of each node reachable from the root to its
+depth in the tree (i.e., its distance from the root, which has depth 0).
+*/
+func (kt KinematicTree) Depths() map[int64]int {
+	_, depths := kt.breadthFirstSearch()
+	return depths
+}
+
+/*
+IsTreeEdge returns true if edge is one of the edges of the tree.
+Edges of the original graph that are not tree edges are the loop-closing edges.
+*/
+func (kt KinematicTree) IsTreeEdge(edge *KinematicGraphEdge) bool {
+	if kt.underlyingGraph == nil || edge == nil {
+		return false
+	}
+
+	for _, treeEdge := range kt.underlyingGraph.edges {
+		if treeEdge == edge {
+			return true
+		}
+	}
+
+	return false
+}
+
+/*
+breadthFirstSearch traverses the tree's edges (ignoring their direction)
+starting from the root, and returns the parent and depth of each node it reaches.
+*/
+func (kt KinematicTree) breadthFirstSearch() (map[int64]int64, map[int64]int) {
+	parents := make(map[int64]int64)
+	depths := make(map[int64]int)
+	if kt.underlyingGraph == nil || kt.rootNode == nil {
+		return parents, depths
+	}
+
+	// Collect the neighbors of each node along the tree's edges
+	neighbors := make(map[int64][]int64, len(kt.underlyingGraph.nodeMap))
+	for _, edge := range kt.underlyingGraph.edges {
+		fromID, toID := edge.from.ID(), edge.to.ID()
+		neighbors[fromID] = append(neighbors[fromID], toID)
+		neighbors[toID] = append(neighbors[toID], fromID)
+	}
+
+	rootID := kt.rootNode.ID()
+	depths[rootID] = 0
+	queue := []int64{rootID}
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		for _, neighborID := range neighbors[currentID] {
+			if _, seen := depths[neighborID]; seen {
+				continue
+			}
+			parents[neighborID] = currentID
+			depths[neighborID] = depths[currentID] + 1
+			queue = append(queue, neighborID)
+		}
+	}
+
+	return parents, depths
+}
+
 // func (kt KinematicTree) AssignLinksAndJointNumbers() (map[string]int, map[string]int) {
 // 	// Create map for the links
 // 	linkNameToID := make(map[string]int)

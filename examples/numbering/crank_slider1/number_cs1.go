@@ -32,4 +32,10 @@ func main() {
 		}
 		fmt.Printf("Node ID: %d, Number: %d\n", nodeID, number)
 	}
+
+	// Save the numbering to a file
+	err = kg.SaveNumberingToFile("crank_slider_numbering.svg")
+	if err != nil {
+		panic(err)
+	}
 }
