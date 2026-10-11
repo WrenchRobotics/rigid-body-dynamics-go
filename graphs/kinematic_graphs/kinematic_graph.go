@@ -277,6 +277,19 @@ func (g *KinematicGraph) GetNode(id int64) (*KinematicGraphNode, error) {
 	return node, nil
 }
 
+func (g *KinematicGraph) GetNodeByName(name string) (*KinematicGraphNode, error) {
+	for _, node := range g.nodeMap {
+		nodeName, err := node.GetName()
+		if err != nil {
+			continue
+		}
+		if nodeName == name {
+			return node, nil
+		}
+	}
+	return nil, &kinematic_graph_errors.NodeDoesNotExistError{}
+}
+
 func (g *KinematicGraph) GetNodeIDForLink(link *link.Link) (int64, error) {
 	// Return error if node does not exist
 	if link == nil {
