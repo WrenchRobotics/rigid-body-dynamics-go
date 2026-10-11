@@ -195,6 +195,28 @@ func (g *KinematicGraph) From(id int64) graph.Nodes {
 	return iterator.NewOrderedNodes(out)
 }
 
+// func (g *KinematicGraph) GetAdjacentNodes(n *KinematicGraphNode) ([]*KinematicGraphNode, error) {
+// 	adjacentNodes := make([]*KinematicGraphNode, 0)
+
+// 	// Get parent node
+// 	parentNode, err := g.GetParent(n)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	if parentNode != nil {
+// 		adjacentNodes = append(adjacentNodes, parentNode)
+// 	}
+
+// 	// Get children nodes
+// 	childrenNodes, err := g.GetChildren(n)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	adjacentNodes = append(adjacentNodes, childrenNodes...)
+
+// 	return adjacentNodes, nil
+// }
+
 func (g *KinematicGraph) GetChildren(n *KinematicGraphNode) ([]*KinematicGraphNode, error) {
 	// Get children from link
 	nAsLink, err := n.GetLink()
@@ -558,7 +580,8 @@ func (g *KinematicGraph) SetEdge(edge graph.Edge) {
 }
 
 // ToSpanningTree uses a greedy algorithm to construct a spanning tree
-// for the current kinematic graph.
+// for the current kinematic graph. The root of the tree is chosen via
+// FindRootNode (i.e., a link with no parents in the URDF).
 func (g *KinematicGraph) ToSpanningTree() (KinematicTree, error) {
 	// A single spanning tree can only be formed from a connected graph.
 	components := topo.ConnectedComponents(g)
@@ -566,17 +589,50 @@ func (g *KinematicGraph) ToSpanningTree() (KinematicTree, error) {
 		return KinematicTree{}, fmt.Errorf("graph has more than one connected component; cannot construct spanning tree")
 	}
 
-	nodes := g.Nodes()
-	if !nodes.Next() {
-		return KinematicTree{}, fmt.Errorf("graph has no nodes")
-	}
-
-	rootNode, ok := nodes.Node().(*KinematicGraphNode)
-	if !ok {
-		return KinematicTree{}, fmt.Errorf("first graph node is not a KinematicGraphNode")
+	rootNode, err := g.FindRootNode()
+	if err != nil {
+		return KinematicTree{}, fmt.Errorf("failed to find root node for spanning tree: %v", err)
 	}
 
 	return g.ToSpanningTreeWithDesiredRootNode(rootNode)
+}
+
+// FindRootNode returns a node whose link has no parents in the URDF, i.e.,
+// the link has no ParentLink and is not the child of any joint (stored edge).
+// If several such nodes exist, the one with the smallest ID is returned so
+// that the result is deterministic.
+func (g *KinematicGraph) FindRootNode() (*KinematicGraphNode, error) {
+	if len(g.nodeMap) == 0 {
+		return nil, fmt.Errorf("graph has no nodes")
+	}
+
+	hasParentEdge := make(map[int64]bool, len(g.edges))
+	for _, edge := range g.edges {
+		if edge == nil || edge.to == nil || edge.from == edge.to {
+			continue
+		}
+		hasParentEdge[edge.to.ID()] = true
+	}
+
+	var root *KinematicGraphNode
+	for id, node := range g.nodeMap {
+		nodeLink, err := node.GetLink()
+		if err != nil || nodeLink == nil {
+			continue
+		}
+		if nodeLink.ParentLink != nil || hasParentEdge[id] {
+			continue
+		}
+		if root == nil || id < root.ID() {
+			root = node
+		}
+	}
+
+	if root == nil {
+		return nil, fmt.Errorf("no node without a parent link was found in the graph")
+	}
+
+	return root, nil
 }
 
 // ToSpanningTreeWithDesiredRootNode uses a greedy algorithm to construct a
@@ -668,4 +724,23 @@ func (g *KinematicGraph) ToSpanningTreeWithDesiredRootNode(rootNode *KinematicGr
 		underlyingGraph: spanningGraph,
 		rootNode:        rootNode,
 	}, nil
+}
+
+/*
+ */
+func (g *KinematicGraph) ComputeNumbering() (*Numbering, error) {
+	// Choose a Spanning Tree from the graph
+	spanningTree, err := g.ToSpanningTree()
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute spanning tree: %v", err)
+	}
+
+	// Compute numbering for the spanning tree
+	numbering, err := spanningTree.ComputeNumbering()
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute numbering for the spanning tree: %v", err)
+	}
+
+	return numbering, nil
+
 }
